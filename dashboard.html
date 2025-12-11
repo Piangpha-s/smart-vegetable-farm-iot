@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบปลูกผักอัตโนมัติ</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <link rel="stylesheet" href="/dashboard/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌿ระบบปลูกผักอัตโนมัติ</h1>
+            <p>Control your farm Intelligent.</p> <br>
+                <div class="mode-toggle">
+                    <button class="mode-btn active" onclick="setMode('auto')">ระบบอัตโนมัติ</button>
+                    <button class="mode-btn active" onclick="setMode('manual')">ระบบแมนนวล</button>
+                    <span class="status-indicator auto" id="modeStatus">โหมดอัตโนมัติ</span>
+                </div>
+        </div> 
+        <div class="plant-info">
+            <h3 id="plantName">Green Oak Lettuce</h3>
+            <label for="plantDescriptionInput">ผักสลัดเป็นผักใบเขียวที่ต้องการการดูแลในสภาพแวดล้อมที่เย็นและชื้น เหมาะสำหรับการปลูกแบบควบคุมสภาพแวดล้อม</label>
+            <div class="optimal-ranges">
+                <div class="range-item">
+                    <div><h2>อุณหภูมิ</h2></div>
+                    <div>
+                    <span id="temperatureRange">-</span>
+                    <small> (ปัจจุบัน: <span id="temperatureNow">-</span>)</small>
+                    </div>
+                </div>
+                <div class="range-item">
+                    <div><strong>ระดับน้ำในถัง</strong></div>
+                    <div>
+                    <span id="waterLevelRange">-</span>
+                    <small>ปัจจุบัน: <span id="waterLevelNow">-</span></small>
+                    </div>
+                </div>
+                <div class="range-item">
+                    <div><strong>ความชื้นดิน</strong></div>
+                    <div>
+                    <span id="soilRange">-</span>
+                    <small> (ปัจจุบัน: <span id="soilNow">-</span>)</small>
+                    </div>
+                </div>
+                <div class="range-item">
+                    <div><strong>แสง</strong></div>
+                    <div>
+                    <span id="lightRange">-</span>
+                    </div>
+                </div>
+                </div>
+        </div>
+
+        <div class="dashboard">
+            <div class="card">
+                <h3>📊 ข้อมูลเซนเซอร์</h3>
+                <div class="sensor-grid">
+                    <div class="sensor-item">
+                        <div class="sensor-label">ความชื้นในดิน</div>
+                        <div class="sensor-value" id="soilMoisture">68%</div>
+                    </div>
+                    <div class="sensor-item">
+                        <div class="sensor-label">อุณหภูมิอากาศ</div>
+                        <div class="sensor-value" id="temperature">--</div>
+                    </div>
+                    <div class="sensor-item">
+                        <div class="sensor-label">ปริมาณแสง</div>
+                        <div class="sensor-value" id="lightLevel">lux</div>
+                    </div>
+                    <div class="sensor-item">
+                        <div class="sensor-label">ระดับน้ำในถัง</div>
+                        <div class="sensor-value" id="waterLevel">--</div>
+                        <small id="distanceValue"></small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>🎛️ การควบคุมระบบ</h3>
+                <div class="controls">
+                    <div class="control-item">
+                        <div>💧 น้ำ</div>
+                        <label class="switch">
+                            <input type="checkbox" id="waterPump" onchange="updateControl('water', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                        <div style="margin-top: 5px; font-size: 0.9rem;" id="waterStatus">ปิด</div>
+                    </div>
+                    <div class="control-item">
+                        <div>💡 ไฟ</div>
+                        <label class="switch">
+                            <input type="checkbox" id="lightSystem" onchange="updateControl('light', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                        <div style="margin-top: 5px; font-size: 0.9rem;" id="lightStatus">ปิด</div>
+                    </div>
+                    <div class="control-item">
+                        <div>🌪️พัดลม</div>
+                        <label class="switch">
+                            <input type="checkbox" id="fanSystem" onchange="updateControl('fan', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                        <div style="margin-top: 5px; font-size: 0.9rem;" id="fanStatus">ปิด</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📈 กราฟข้อมูลเซนเซอร์</h3>
+                <div class="chart-container">
+                    <canvas id="sensorChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        
+<div class="settings-section">
+  <div class="settings-header">
+    <h3>⚙️ การตั้งค่าระบบอัตโนมัติ</h3>
+    <select id="modeSelector" onchange="handleModeChange()">
+      <option value="view">mode</option>
+      <option value="edit">edit</option>
+      <option value="add">add</option>
+    </select>
+  </div>
+<div class="setting-group">
+  <!-- ✅ ช่องกรอกชื่อพืช (ใช้ในโหมดเพิ่มหรือแก้ไข) -->
+  <div class="setting-item">
+    <label for="plantTypeName">ชื่อพืช:</label>
+    <input type="text" id="plantTypeName" placeholder="ชื่อพืช" />
+    <input type="hidden" id="originalPlantName" />
+  </div>
+                <div class="setting-item">
+                    <label for="growthStage">ช่วงการเจริญเติบโต:</label>
+                    <select id="growthStage" onchange="updateGrowthStage()">
+                        <option value="seedling">ช่วงต้นกล้า (0-2 สัปดาห์)</option>
+                        <option value="vegetative">ช่วงเจริญเติบโต (2-6 สัปดาห์)</option>
+                        <option value="mature">ช่วงเก็บเกี่ยว (6+ สัปดาห์)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="setting-item">
+                <label for="displayPlantSelector">เลือกพืชที่ต้องการแสดง:</label>
+                <select id="displayPlantSelector" onchange="updatePlantDisplay()">
+                    <option value="green_oak">ผักกรีนโอ๊ค</option>
+                    <option value="red_oak">ผักเรดโอ๊ค</option>
+                </select>
+            </div>
+
+            <h4 style="margin: 20px 0 15px 0; color: #2c3e50;">🎯 ค่าเป้าหมาย</h4>
+            <div class="setting-group">
+                <div class="setting-item">
+                    <label for="targetSoilMoisture">ความชื้นในดิน (%):</label>
+                    <div class="range-inputs">
+                        <input type="number" id="targetSoilMoistureMin" placeholder="ต่ำสุด">
+                        <span style="margin:0 5px;">–</span>
+                        <input type="number" id="targetSoilMoistureMax" placeholder="สูงสุด">
+                    </div>
+                    <small>แนะนำ: 60-80%</small>
+                </div>
+                
+                <div class="setting-item">
+                    <label for="targetTemperature">อุณหภูมิ (°C):</label>
+                    <div class="range-inputs">
+                        <input type="number" id="targetTemperatureMin" placeholder="ต่ำสุด">
+                        <span style="margin:0 5px;">–</span>
+                        <input type="number" id="targetTemperatureMax" placeholder="สูงสุด">
+                    </div>   
+                    <small>แนะนำ: 7–18°C</small>
+                </div>
+
+                <div class="setting-item">
+                    <label for="lightDuration">ระยะเวลาแสง (ชั่วโมง/วัน):</label>
+                    <div class="range-inputs">
+                        <input type="number" id="lightDurationMin" placeholder="ต่ำสุด">
+                        <span style="margin:0 5px;">–</span>
+                        <input type="number" id="lightDurationMax" placeholder="สูงสุด">
+                    </div>
+                    <small>แนะนำ: 14-16 ชั่วโมง</small>
+                </div>
+            </div>
+
+            <h4 style="margin: 20px 0 15px 0; color: #2c3e50;">⏰ ตารางการทำงาน</h4>
+            <div class="setting-group output-rows">
+                <div class="setting-item slim">
+                    <label for="wateringMode">💧 โหมดรดน้ำ</label>
+                    <select id="wateringMode" onchange="updateModeVisibility()">
+                    <option value="auto">อัตโนมัติ (ตามความชื้น)</option>
+                    <option value="scheduled">ตามช่วงเวลา</option>
+                    </select>
+                </div>
+
+                <div class="setting-item slim">
+                    <label for="lightMode">💡 โหมดไฟ</label>
+                    <select id="lightMode" onchange="updateModeVisibility()">
+                    <option value="auto">อัตโนมัติ (แสง)</option>
+                    <option value="scheduled">ตามช่วงเวลา</option>
+                    </select>
+                </div>
+
+                <div class="setting-item slim">
+                    <label for="fanMode">🌪️ โหมดพัดลม</label>
+                    <select id="fanMode" onchange="updateModeVisibility()">
+                    <option value="auto">อัตโนมัติ (ตามอุณหภูมิ)</option>
+                    <option value="scheduled">ตามช่วงเวลา</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="setting-group">
+                <!-- LIGHT -->
+                <div class="setting-item">
+                    <label for="lightOnTime">เวลาเปิดไฟ: 𖤓</label>
+                    <input type="time" id="lightOnTime" value="06:00">
+                </div>
+                <div class="setting-item">
+                    <label for="lightOffTime">เวลาปิดไฟ: 𖤓</label>
+                    <input type="time" id="lightOffTime" value="20:00">
+                </div>
+
+                <!-- FAN -->
+                <div class="setting-item">
+                    <label for="fanOnTime">เวลาเปิดพัดลม: 𖣘</label>
+                    <input type="time" id="fanOnTime" value="06:00">
+                </div>
+                <div class="setting-item">
+                    <label for="fanOffTime">เวลาปิดพัดลม: 𖣘</label>
+                    <input type="time" id="fanOffTime" value="20:00">
+                </div>
+
+                <!-- WATER -->
+                <div class="setting-item" id="wateringIntervalGroup">
+                    <label for="wateringInterval">ช่วงเวลาให้น้ำ (ชั่วโมง):</label>
+                    <input type="number" id="wateringInterval" value="6" min="1" max="24">
+                </div>
+                <div class="setting-item" id="wateringDurationGroup">
+                    <label for="wateringDuration">ระยะเวลาให้น้ำ (นาที):</label>
+                    <input type="number" id="wateringDuration" value="5" min="1" max="30">
+                </div>
+            </div>
+
+            <button class="save-btn" onclick="saveSettings()">💾 บันทึกการตั้งค่า</button>
+            <div id="alertContainer"></div>
+
+                <script src="/dashboard/script.js"></script>
+
+</body>
+</html>

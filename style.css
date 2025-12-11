@@ -1,0 +1,484 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Prompt', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #134E5E;
+    background: linear-gradient(to right,#134E5E,#71B280);
+    background-attachment: fixed;
+    color: #f0f0f0;
+    min-height: 100vh;
+    transition: background 0.5s ease;
+}
+
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.header {
+    text-align: center;
+    color: white;
+    margin-bottom: 30px;
+}
+
+.header h1 {
+    font-size: 2.5rem;
+    margin-bottom: 10px;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+.plant-info h3 {
+    font-size: 1.4rem; /* ใหญ่กว่า p แต่เล็กกว่า h3 ปกติ */
+    font-weight: 350;  /* ปกติ ไม่หนา */
+    color: #ffffff;
+    margin-bottom: 3px;
+}
+
+.plant-info h2 {
+    font-size: 1rem; /* ใหญ่กว่า p แต่เล็กกว่า h3 ปกติ */
+    font-weight: 600;  /* ปกติ ไม่หนา */
+    color: #ffffff;
+    margin-bottom: 3px;
+}
+
+.header p {
+    font-size: 1.3rem; /* ขยายจาก 16px → ประมาณ 19px */
+    font-weight: 300;
+    color: #f0f0f0;
+}
+
+.light-status {
+  font-weight: normal;   /* ลดความหนา */
+  font-size: 0.85rem;    /* เล็กกว่าค่าตัวเลข */
+  color: #ffffff;        /* ตัวอักษรสีขาว */
+  margin-left: 6px;      /* เว้นระยะจากตัวเลขนิดหน่อย */
+}
+
+/* ให้ element ฟอร์มและปุ่มใช้ฟอนต์เดียวกับ body */
+button, input, select, textarea {
+  font-family: inherit !important;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+/* กลุ่มปุ่มโหมด + แถบสถานะ ใช้ Prompt แน่นอน */
+.mode-toggle, .mode-btn, .status-indicator {
+  font-family: 'Prompt', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+}
+
+/* ตั้งน้ำหนักที่มีไฟล์จริงให้ตรงกับที่ใช้ */
+.mode-btn {
+  font-weight: 500;      /* ปุ่มไม่ต้องหนามาก */
+}
+.status-indicator {
+  font-weight: 700;      /* อันนี้ตั้งใจให้หนา = โหลด 700 แล้วใช้ได้ */
+}
+
+.status-indicator {
+    display: inline-block;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-weight: bold;
+    margin-left: 10px;
+}
+
+.auto { background: #4CAF50; color: white; }
+.manual { background: #FF9800; color: white; }
+
+.dashboard {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.card {
+    background: rgba(255, 255, 255, 0.15); /* ทำให้โปร่งแสง */
+    border: 1px solid rgba(255, 255, 255, 0.3); /* ขอบสีขาวจางๆ */
+    border-radius: 15px;
+    padding: 20px;
+    margin-bottom: 20px;
+    backdrop-filter: blur(8px); /* เบลอฉากหลังเล็กน้อยให้ดูมีมิติแบบ glass effect */
+    -webkit-backdrop-filter: blur(8px);
+    color: #fff; /* ให้ข้อความอ่านง่ายขึ้น */
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+}
+
+.card h3 {
+    color: #2c3e50;
+    margin-bottom: 15px;
+    font-size: 1.3rem;
+    border-bottom: 2px solid #3498db;
+    padding-bottom: 5px;
+}
+
+.card h3 {
+    color: #ffffff; /* เปลี่ยนจากเทาเข้มเป็นขาว */
+    text-shadow: 0 0 6px rgba(0, 0, 0, 0.2); /* เพิ่มเงาเล็กน้อยให้อ่านง่าย */
+    margin-bottom: 15px;
+    font-size: 1.3rem;
+    border-bottom: 2px solid rgba(113, 178, 128, 0.8); /* เขียวพาสเทลกลืนธีม */
+    padding-bottom: 5px;
+}
+
+
+.sensor-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+}
+
+.sensor-item {
+    background: rgba(255, 255, 255, 0.15); /* โปร่งใสเหมือนกระจก */
+    border: 1px solid rgba(255, 255, 255, 0.25); /* ขอบอ่อนๆ */
+    border-radius: 10px;
+    padding: 10px;
+    text-align: center;
+    color: #ffffff; /* ให้ตัวอักษรขาวชัดขึ้น */
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.sensor-value {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #2c3e50;
+    margin: 5px 0;
+}
+
+.sensor-label {
+    font-size: 0.9rem;
+    color: #2c3e50;
+}
+
+.controls {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 15px;
+}
+
+.control-item {
+    background: rgba(255, 255, 255, 0.15); /* โปร่งใสเหมือนกระจก */
+    border: 1px solid rgba(255, 255, 255, 0.25); /* ขอบอ่อนๆ */
+    border-radius: 10px;
+    padding: 10px;
+    text-align: center;
+    color: #ffffff; /* ให้ตัวอักษรขาวชัดขึ้น */
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 60px;
+    height: 34px;
+    margin-top: 10px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .4s;
+    border-radius: 34px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 26px;
+    width: 26px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked + .slider {
+    background-color: #4CAF50;
+}
+
+input:checked + .slider:before {
+    transform: translateX(26px);
+}
+
+.mode-toggle {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.mode-btn.active {
+    background: #2c3e50;
+        color: white;
+    border: none;
+    padding: 9px 30px;
+    margin: 0 5px;
+    border-radius: 25px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+    transform: scale(1.05);
+}
+
+.mode-btn:hover {
+    background: #2980b9;
+    transform: translateY(-2px);
+}
+
+.settings-section {
+    background: rgba(255, 255, 255, 0.15); /* ทำให้โปร่งแสง */
+    border: 1px solid rgba(255, 255, 255, 0.3); /* ขอบสีขาวจางๆ */
+    border-radius: 15px;
+    padding: 20px;
+    margin-bottom: 20px;
+    backdrop-filter: blur(8px); /* เบลอฉากหลังเล็กน้อยให้ดูมีมิติแบบ glass effect */
+    -webkit-backdrop-filter: blur(8px);
+    color: #fff; /* ให้ข้อความอ่านง่ายขึ้น */
+}
+
+.setting-group {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.setting-item select {
+    background: rgba(255, 255, 255, 0.1); /* โปร่งใสเหมือนกรอบอุณหภูมิ */
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #ffffff;
+    border-radius: 8px;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    padding: 8px 12px;
+}
+
+/* ตอน hover ที่ select (ก่อนคลิก) */
+.setting-item select:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* ตัวเลือกภายใน dropdown */
+.setting-item select option {
+    background: rgba(19, 78, 94, 0.9); /* เขียวเข้มโปร่งเล็กน้อย */
+    color: #ffffff;
+}
+
+.setting-item {
+    background: rgba(255, 255, 255, 0.15); /* โปร่งใสเหมือนกระจก */
+    border: 1px solid rgba(255, 255, 255, 0.25); /* ขอบอ่อนๆ */
+    border-radius: 10px;
+    padding: 10px;
+    text-align: center;
+    color: #ffffff; /* ให้ตัวอักษรขาวชัดขึ้น */
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.setting-item label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+.setting-item input,.setting-item select {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #ffffff;
+    padding: 8px 12px; /* ✅ ใส่กลับมาคืนขนาดเดิม */
+    font-size: 1rem;   /* ✅ เพิ่มเพื่อความแน่ใจ */
+    border-radius: 5px;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    transition: all 0.3s ease;
+}
+
+.setting-item input:focus,.setting-item select:focus {
+    border-color: #71B280;
+    box-shadow: 0 0 5px rgba(113, 178, 128, 0.6);
+}
+
+.chart-container {
+    position: relative;
+    height: 300px;
+    margin-top: 20px;
+}
+
+.save-btn {
+    background: #27ae60;
+    color: white;
+    border: none;
+    padding: 12px 30px;
+    border-radius: 25px;
+    cursor: pointer;
+    font-size: 1.1rem;
+    margin-top: 20px;
+    transition: all 0.3s ease;
+}
+
+.save-btn:hover {
+    background: #219a52;
+    transform: translateY(-2px);
+}
+
+.alert {
+    padding: 12px;
+    border-radius: 8px;
+    margin: 10px 0;
+    font-weight: bold;
+}
+
+.alert.warning {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+.alert.success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.plant-info {
+    background: rgba(255, 255, 255, 0.15); /* ทำให้โปร่งแสง */
+    border: 1px solid rgba(255, 255, 255, 0.3); /* ขอบสีขาวจางๆ */
+    border-radius: 15px;
+    padding: 20px;
+    margin-bottom: 20px;
+    backdrop-filter: blur(8px); /* เบลอฉากหลังเล็กน้อยให้ดูมีมิติแบบ glass effect */
+    -webkit-backdrop-filter: blur(8px);
+    color: #fff; /* ให้ข้อความอ่านง่ายขึ้น */
+}
+
+.optimal-ranges {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.range-item {
+    background: rgba(255, 255, 255, 0.15); /* โปร่งใสเหมือนกระจก */
+    border: 1px solid rgba(255, 255, 255, 0.25); /* ขอบอ่อนๆ */
+    border-radius: 10px;
+    padding: 10px;
+    text-align: center;
+    color: #ffffff; /* ให้ตัวอักษรขาวชัดขึ้น */
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.plant-input-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.quick-select-btn {
+    background: #f8f9fa;
+    border: 2px solid #3498db;
+    color: #3498db;
+    padding: 6px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.quick-select-btn:hover {
+    background: #3498db;
+    color: white;
+}
+
+.quick-select-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 15px;
+}
+
+.settings-header h3 {
+  font-size: 1.3rem;
+  color: #ffffff;
+  margin: 0;
+}
+
+#modeSelector {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+#modeSelector:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+#modeSelector option {
+  background: rgba(19, 78, 94, 0.9);
+  color: #ffffff;
+}
+
+/* จัด 3 ช่องให้เรียงในบรรทัดเดียวแบบเดียวกับ "ค่าเป้าหมาย" */
+.output-rows {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 20px; /* ให้เท่ากับ .setting-group เดิม */
+}
+
+/* ให้บล็อกดูบางลงนิดหน่อยแต่ยังเป็นสไตล์ setting-item เดิม */
+.setting-item.slim {
+  padding: 10px;
+}
+
+/* ให้ select เต็มบล็อกและอ่านง่าย */
+.setting-item.slim select {
+  width: 100%;
+}
+
+/* responsive: จอแคบลงให้พับเป็น 2 และ 1 คอลัมน์ */
+@media (max-width: 900px) {
+  .output-rows { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+}
+@media (max-width: 560px) {
+  .output-rows { grid-template-columns: 1fr; }
+}
