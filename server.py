@@ -11,6 +11,7 @@ plants_collection = db["plants"]   # เก็บข้อมูลพืช
 plants_collection.create_index("name", unique=True)
 sensors_collection = db["sensor_logs"] # เก็บข้อมูลเซนเซอร์
 watering_logs_collection = db["watering_logs"]
+system_collection = db["system_state"]
 
 
 # เก็บค่าจาก ESP32
@@ -27,6 +28,10 @@ control_state = {
     "light": 0,   # 0=ปิด, 1=เปิด (GPIO 25 - ไฟ)
     "fan": 0,      # 0=ปิด, 1=เปิด (GPIO 26 - พัดลม)
         "lastLightOn": None
+}
+
+system_mode = {
+    "mode": "auto"
 }
 
 # Route สำหรับอัปเดตค่าจาก ESP32
@@ -57,6 +62,42 @@ def update_data():
     print("📦 บันทึกข้อมูลเซนเซอร์สำเร็จ:", sensor_data)
     return jsonify(sensor_data)
 
+def get_active_plant():
+    state = system_collection.find_one({"key": "activePlant"})
+    if state and "plantName" in state:
+        return state["plantName"]
+
+    # fallback: แสดงค่าเริ่มต้นเฉย ๆ (ห้ามเขียนกลับ)
+    first = plants_collection.find_one({}, {"name": 1})
+    return first["name"] if first else None
+
+
+
+def set_active_plant(plant_name):
+    system_collection.update_one(
+        {"key": "activePlant"},
+        {"$set": {
+            "plantName": plant_name,
+            "selectedAt": datetime.now()
+        }},
+        upsert=True
+    )
+
+@app.route("/active_plant", methods=["GET"])
+def active_plant():
+    return jsonify({
+        "plantName": get_active_plant()
+    })
+
+@app.route("/active_plant", methods=["POST"])
+def set_active_plant_api():
+    data = request.get_json() or {}
+    plant = data.get("plantName")
+    if not plant:
+        return jsonify({"message": "no plant"}), 400
+
+    set_active_plant(plant)
+    return jsonify({"plantName": plant}), 200
 
 # Route สำหรับดึงข้อมูล JSON
 @app.route("/data")
@@ -72,24 +113,34 @@ def get_data():
 @app.route("/control", methods=["POST"])
 def control():
     data = request.get_json() or {}
+    mode = system_mode.get("mode", "auto")
 
-    if "water" in data:
-        control_state["water"] = int(data["water"])
+    print("🎛️ Manual intent received:", data)
 
-    if "light" in data:
-        prev = int(control_state.get("light", 0))
-        newv = int(data["light"])
-        control_state["light"] = newv
-        if newv == 1 and prev == 0:
-            control_state["lastLightOn"] = datetime.now().isoformat()
+    # ✅ เขียนของจริง เฉพาะตอน manual
+    if mode == "manual":
+        if "water" in data:
+            control_state["water"] = int(data["water"])
 
-    if "fan" in data:
-        control_state["fan"] = int(data["fan"])
+        if "light" in data:
+            prev = int(control_state.get("light", 0))
+            newv = int(data["light"])
+            control_state["light"] = newv
+            if newv == 1 and prev == 0:
+                control_state["lastLightOn"] = datetime.now().isoformat()
 
-    print("🎛️ Updated control state:", control_state)
-    return jsonify(control_state)
+        if "fan" in data:
+            control_state["fan"] = int(data["fan"])
 
-system_mode = {"mode": "auto"}
+        print("✅ control_state updated (manual):", control_state)
+    else:
+        print("⛔ Ignored manual intent (mode=auto)")
+
+    # 🔁 ส่งสถานะปัจจุบันกลับให้ dashboard
+    return jsonify({
+        **control_state,
+        "mode": mode
+    }), 200
 
 
 @app.route("/system_mode", methods=["POST"])
@@ -99,7 +150,7 @@ def set_system_mode():
     if mode not in ("auto","manual"):
         return jsonify({"message":"invalid mode"}), 400
     system_mode["mode"] = mode
-    print("🔄 เปลี่ยนโหมดระบบเป็น:", mode)   # เพิ่มบรรทัดนี้
+    print("🔄 เปลี่ยนโหมดระบบเป็น:", mode) 
     return jsonify(system_mode), 200
 
 
@@ -118,42 +169,129 @@ def dashboard_static(filename):
 
 @app.route("/get_control", methods=["GET"])
 def get_control():
-    # ✅ ดึงพืชตัวแรก (หรือที่กำลังใช้งาน)
-    plant = plants_collection.find_one({}, {"_id": 0})
+    # =========================================================
+    # 🔎 LOAD STATE
+    # =========================================================
+    active_name = get_active_plant()
+    plant = plants_collection.find_one({"name": active_name}, {"_id": 0})
+
     mode = system_mode.get("mode", "auto")
 
     if not plant:
         return jsonify({**control_state, "mode": mode})
 
-    # ✅ ดึงค่าโหมดและช่วงค่าความชื้นในดิน
+    hour = datetime.now().hour
+    soil = sensor_data.get("soilMoisture", 0)
+    temp = sensor_data.get("temperature", 0)
+
+    # =========================================================
+    # 🎯 TARGETS / CONFIG
+    # =========================================================
+    # Soil
     target_soil_str = plant.get("soilMoistureRange", "60–80%").replace("%", "")
     try:
         min_soil, max_soil = map(int, target_soil_str.split("–"))
     except Exception:
-        min_soil = max_soil = int(''.join(filter(str.isdigit, target_soil_str)) or 60)
+        min_soil, max_soil = 60, 80
 
-    interval = int(plant.get("wateringInterval", 6))
-    hour = datetime.now().hour
+    # Temperature
+    temp_str = plant.get("temperatureRange", "15–25°C").replace("°C", "")
+    try:
+        temp_min, temp_max = map(int, temp_str.split("–"))
+    except Exception:
+        temp_min, temp_max = 15, 25
 
-    # ✋ โหมดแมนนวล → ส่งค่าที่ผู้ใช้กดจากหน้าเว็บโดยตรง
+    # Time config
+    light_on  = int(plant.get("lightOnTime", "06:00").split(":")[0])
+    light_off = int(plant.get("lightOffTime", "20:00").split(":")[0])
+    fan_on    = int(plant.get("fanOnTime", "06:00").split(":")[0])
+    fan_off   = int(plant.get("fanOffTime", "20:00").split(":")[0])
+
+    # Sub-modes (สำคัญมาก)
+    watering_mode = plant.get("wateringMode", "auto")
+    light_mode    = plant.get("lightMode", "auto")
+    fan_mode      = plant.get("fanMode", "auto")
+
+    # =========================================================
+    # ✋ MANUAL MODE → backend ไม่คิดอะไรเลย
+    # =========================================================
     if mode == "manual":
-        print("🧠 โหมดรดน้ำ: manual | ใช้ค่าจาก control_state:", control_state)
+        print("🧠 manual | control_state:", control_state)
         return jsonify({**control_state, "mode": "manual"})
 
-    # 🧠 โหมดอัตโนมัติ (ตามค่าความชื้น)
+    # =========================================================
+    # 🧠 AUTO MODE (respect sub-modes)
+    # =========================================================
     if mode == "auto":
-        if sensor_data["soilMoisture"] < min_soil:
-            control_state["water"] = 1
-        elif sensor_data["soilMoisture"] > max_soil:
-            control_state["water"] = 0
 
-    # 🕒 โหมดตามช่วงเวลา
+        # 💧 WATER (minute-based scheduled)
+        if watering_mode == "scheduled":
+            now = datetime.now()
+            current_minutes = now.hour * 60 + now.minute
+
+            w_on_h, w_on_m = map(int, plant.get("waterOnTime", "08:20").split(":"))
+            w_off_h, w_off_m = map(int, plant.get("waterOffTime", "08:22").split(":"))
+
+            water_on_min  = w_on_h * 60 + w_on_m
+            water_off_min = w_off_h * 60 + w_off_m
+
+            control_state["water"] = 1 if water_on_min <= current_minutes < water_off_min else 0
+
+
+        # 💡 LIGHT (minute-based scheduled)
+        if light_mode == "scheduled":
+            now = datetime.now()
+            current_minutes = now.hour * 60 + now.minute
+
+            light_on_h, light_on_m = map(int, plant.get("lightOnTime", "06:00").split(":"))
+            light_off_h, light_off_m = map(int, plant.get("lightOffTime", "20:00").split(":"))
+
+            light_on_min  = light_on_h * 60 + light_on_m
+            light_off_min = light_off_h * 60 + light_off_m
+
+            control_state["light"] = 1 if light_on_min <= current_minutes < light_off_min else 0
+
+        elif light_mode == "auto":
+            lux = sensor_data.get("light", 0)
+            light_threshold = int(plant.get("lightThreshold", 300))  # ค่า default
+
+            control_state["light"] = 1 if lux < light_threshold else 0
+
+
+        # 🌪 FAN (minute-based scheduled)
+        if fan_mode == "scheduled":
+            now = datetime.now()
+            current_minutes = now.hour * 60 + now.minute
+
+            fan_on_h, fan_on_m = map(int, plant.get("fanOnTime", "06:00").split(":"))
+            fan_off_h, fan_off_m = map(int, plant.get("fanOffTime", "20:00").split(":"))
+
+            fan_on_min  = fan_on_h * 60 + fan_on_m
+            fan_off_min = fan_off_h * 60 + fan_off_m
+
+            control_state["fan"] = 1 if fan_on_min <= current_minutes < fan_off_min else 0
+
+
+    # =========================================================
+    # 🕒 SYSTEM SCHEDULED MODE (legacy / ยังไม่ใช้ก็ได้)
+    # =========================================================
     elif mode == "scheduled":
+        interval = int(plant.get("wateringInterval", 6))
         control_state["water"] = 1 if (hour % interval == 0) else 0
+        control_state["light"] = 1 if light_on <= hour < light_off else 0
+        control_state["fan"]   = 1 if fan_on <= hour < fan_off else 0
 
-    print(f"🧠 โหมดรดน้ำ: {mode} | ความชื้นดิน: {sensor_data['soilMoisture']}% "
-          f"| ช่วงเป้าหมาย: {min_soil}–{max_soil}% | เปิดน้ำ: {control_state['water']}")
-    
+    # =========================================================
+    # 📜 LOG
+    # =========================================================
+    print(
+        f"[DECISION] mode={mode} "
+        f"soil={soil}% ({min_soil}-{max_soil}) water={control_state['water']} | "
+        f"temp={temp}°C ({temp_min}-{temp_max}) fan={control_state['fan']} | "
+        f"light={control_state['light']} "
+        f"(sub: water={watering_mode}, light={light_mode}, fan={fan_mode})"
+    )
+
     return jsonify({**control_state, "mode": mode})
 
 
@@ -227,4 +365,9 @@ def log_watering():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(
+        host="0.0.0.0",
+        port=5000,
+        debug=True,
+        use_reloader=False
+    )
