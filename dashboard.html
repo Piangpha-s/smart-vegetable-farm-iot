@@ -19,6 +19,7 @@
                     <button class="mode-btn active" onclick="setMode('manual')">ระบบแมนนวล</button>
                     <span class="status-indicator auto" id="modeStatus">โหมดอัตโนมัติ</span>
                 </div>
+            <div id="controlModeBadge" class="badge auto">AUTO</div>
         </div> 
         <div class="plant-info">
             <h3 id="plantName">Green Oak Lettuce</h3>
@@ -84,7 +85,7 @@
                     <div class="control-item">
                         <div>💧 น้ำ</div>
                         <label class="switch">
-                            <input type="checkbox" id="waterPump" onchange="updateControl('water', this.checked)">
+                            <input type="checkbox" id="waterPump">
                             <span class="slider"></span>
                         </label>
                         <div style="margin-top: 5px; font-size: 0.9rem;" id="waterStatus">ปิด</div>
@@ -92,7 +93,7 @@
                     <div class="control-item">
                         <div>💡 ไฟ</div>
                         <label class="switch">
-                            <input type="checkbox" id="lightSystem" onchange="updateControl('light', this.checked)">
+                            <input type="checkbox" id="lightSystem" >
                             <span class="slider"></span>
                         </label>
                         <div style="margin-top: 5px; font-size: 0.9rem;" id="lightStatus">ปิด</div>
@@ -100,7 +101,7 @@
                     <div class="control-item">
                         <div>🌪️พัดลม</div>
                         <label class="switch">
-                            <input type="checkbox" id="fanSystem" onchange="updateControl('fan', this.checked)">
+                            <input type="checkbox" id="fanSystem" >
                             <span class="slider"></span>
                         </label>
                         <div style="margin-top: 5px; font-size: 0.9rem;" id="fanStatus">ปิด</div>
@@ -233,13 +234,14 @@
                 </div>
 
                 <!-- WATER -->
-                <div class="setting-item" id="wateringIntervalGroup">
-                    <label for="wateringInterval">ช่วงเวลาให้น้ำ (ชั่วโมง):</label>
-                    <input type="number" id="wateringInterval" value="6" min="1" max="24">
+                <div class="setting-item">
+                <label for="waterOnTime">เวลาเปิดน้ำ 💧</label>
+                <input type="time" id="waterOnTime" value="08:20">
                 </div>
-                <div class="setting-item" id="wateringDurationGroup">
-                    <label for="wateringDuration">ระยะเวลาให้น้ำ (นาที):</label>
-                    <input type="number" id="wateringDuration" value="5" min="1" max="30">
+
+                <div class="setting-item">
+                <label for="waterOffTime">เวลาปิดน้ำ 💧</label>
+                <input type="time" id="waterOffTime" value="08:22">
                 </div>
             </div>
 
