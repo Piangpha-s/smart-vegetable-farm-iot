@@ -22,6 +22,15 @@ bool lightOn = false;
 float soilOpenPct  = 30.0;   // เปิดน้ำเมื่อ % ต่ำกว่า
 float soilClosePct = 46.0;   // ปิดน้ำเมื่อ % สูงกว่า
 
+// ===== Scheduled Water (ESP32 เป็นเจ้าของเวลา) =====
+unsigned long waterStartMillis = 0;
+unsigned long waterDurationMs = 0;
+bool scheduledWaterActive = false;
+
+// ===== Scheduled Fan (ESP32 เป็นเจ้าของเวลา) =====
+unsigned long fanStartMillis = 0;
+unsigned long fanDurationMs = 0;   // เผื่อใช้ในอนาคต
+bool scheduledFanActive = false;
 
 // --- DHT22 ---
 #define DHTPIN 4
@@ -48,7 +57,6 @@ LiquidCrystal_I2C lcd(0x27, 20, 4); // ถ้าไม่ขึ้นให้�
 
 // --- ค่าควบคุมอัตโนมัติ ---
 float tempThreshold = 27.0;
-uint16_t lightThreshold = 5000;
 
 // --- ค่าคาลิเบรตความชื้นดิน (จากที่เราวัดจริง) ---
 int soilDry = 2351;   // ดินแห้ง
@@ -95,7 +103,7 @@ void sendToServer(float temperature,
 }
 
 
-void fetchControlCommands(bool &pumpOn, bool &fanOn, bool &lightOn) {
+void fetchControlCommands(bool &pumpOn, bool &fanOn, bool &lightOn, unsigned long &durationMs) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi not connected, skip fetchControlCommands");
     return;
@@ -117,6 +125,10 @@ void fetchControlCommands(bool &pumpOn, bool &fanOn, bool &lightOn) {
       pumpOn  = doc["water"];
       fanOn   = doc["fan"];
       lightOn = doc["light"];
+      if (doc.containsKey("duration")) {
+        durationMs = (unsigned long)doc["duration"] * 1000UL;
+      }
+
       const char* modeStr = doc["mode"];
       isManualMode = (String(modeStr).equalsIgnoreCase("manual"));
       Serial.printf("Parsed -> water:%d light:%d fan:%d mode:%s\n",
@@ -229,56 +241,79 @@ void loop() {
 
   sendToServer(temperature, distance, (float)lux, soilPercent);
 
-  // AUTO CONTROL (เฉพาะเมื่อไม่ใช่ manual)
-  if (!isManualMode) {
-    // น้ำ
-    if (!pumpOn && soilEMA < soilOpenPct) {
-      pumpOn = true;
-      digitalWrite(RELAY_PUMP, LOW);
-    } else if (pumpOn && soilEMA > soilClosePct) {
-      pumpOn = false;
-      digitalWrite(RELAY_PUMP, HIGH);
-    }
 
-    // พัดลม
-    fanOn = (temperature > tempThreshold);
-    digitalWrite(RELAY_FAN, fanOn ? LOW : HIGH);
+  // ===== FETCH COMMAND FROM SERVER =====
+  bool cmdPump = pumpOn;
+  bool cmdFan  = fanOn;
+  bool cmdLight = lightOn;
+  unsigned long cmdDurationMs = 0;
 
-    // ไฟ
-    lightOn = (lux < lightThreshold);
-    digitalWrite(SSR_LIGHT, lightOn ? HIGH : LOW);
+  fetchControlCommands(cmdPump, cmdFan, cmdLight, cmdDurationMs);
+
+  // ===== APPLY SERVER COMMANDS (ALWAYS) =====
+  pumpOn  = cmdPump;
+  fanOn   = cmdFan;
+  lightOn = cmdLight;
+
+  // manual → ยกเลิก scheduled
+  if (isManualMode) {
+    scheduledWaterActive = false;
   }
 
-  // MANUAL OVERRIDE (ทับค่าทุกกรณี)
-  bool cmdPump = pumpOn, cmdFan = fanOn, cmdLight = lightOn;
-  fetchControlCommands(cmdPump, cmdFan, cmdLight);
+    // ===== FAN SCHEDULED =====
+  if (!isManualMode && cmdFan && !scheduledFanActive) {
+    fanOn = true;
+    scheduledFanActive = true;
+  }
+
+  if (!isManualMode && !cmdFan && scheduledFanActive) {
+    fanOn = false;
+    scheduledFanActive = false;
+  }
+
+    // ===== Scheduled Water handling =====
+  if (!isManualMode && cmdPump && cmdDurationMs > 0 && !scheduledWaterActive) {
+    pumpOn = true;
+    scheduledWaterActive = true;
+    waterStartMillis = millis();
+    waterDurationMs = cmdDurationMs;
+
+    Serial.printf("🕒 Scheduled water start (%lu ms)\n", waterDurationMs);
+  }
+
+    // ===== Scheduled Water STOP =====
+  if (scheduledWaterActive) {
+    if (millis() - waterStartMillis >= waterDurationMs) {
+      pumpOn = false;
+      scheduledWaterActive = false;
+      waterDurationMs = 0;
+
+      Serial.println("🛑 Scheduled water stop");
+    }
+  }
 
   Serial.printf("ManualMode=%s cmdPump=%d cmdFan=%d cmdLight=%d\n",
               isManualMode ? "true":"false", cmdPump, cmdFan, cmdLight);
-
-  if (isManualMode) {
-    pumpOn  = cmdPump;
-    fanOn   = cmdFan;
-    lightOn = cmdLight;
-  }
 
     static bool lastPump=false, lastFan=false, lastLight=false;
 
     if (pumpOn != lastPump) { 
       digitalWrite(RELAY_PUMP, pumpOn ? LOW : HIGH); 
       lastPump = pumpOn; 
+      sendStatusToServer();
     }
 
     if (fanOn != lastFan) {   
       digitalWrite(RELAY_FAN, fanOn ? LOW : HIGH);   
       lastFan = fanOn; 
+      sendStatusToServer();
     }
 
     if (lightOn != lastLight) {
       digitalWrite(SSR_LIGHT, lightOn ? HIGH : LOW); 
       lastLight = lightOn; 
+      sendStatusToServer();
     }
-
 
   // Serial & LCD
   Serial.printf("Soil:%.2f%% RAW=%d EMA=%.2f%%\nTemp:%.2f°C\nLight:%u lux\nWater:%.2f cm EMA=%.2f cm\nPump:%s Fan:%s Light:%s\n\n",
@@ -291,4 +326,23 @@ void loop() {
   lcd.setCursor(0,3); lcd.printf("Water:%3dcm M:%s", (int)(distanceEMA+0.5), isManualMode ? "Manual" : "Auto");
 
   delay(3000);
+}
+
+
+void sendStatusToServer() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  char url[200];
+  snprintf(url, sizeof(url),
+    "%s/update_status?water=%d&fan=%d&light=%d",
+    SERVER_BASE,
+    pumpOn ? 1 : 0,
+    fanOn ? 1 : 0,
+    lightOn ? 1 : 0
+  );
+
+  HTTPClient http;
+  http.begin(url);
+  http.GET();
+  http.end();
 }
