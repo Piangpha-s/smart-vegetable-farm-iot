@@ -16,6 +16,11 @@ let systemState = {
 
 let lastWateredTime = null;
 
+let activePlantLocked = false;
+
+let lastPostedActivePlant = null;
+
+
 // ข้อมูลพืชที่แนะนำ
 const plantRecommendations = {
     'ผักเรดโอ๊ค': {
@@ -25,6 +30,7 @@ const plantRecommendations = {
         light: '14-16 ชม./วัน'
     }
 };
+
 
 // ===== Live sensor helpers (ADD) =====
 const SENSOR_ENDPOINT = "http://172.20.10.12:5000/sensor"; // ← เปลี่ยนเป็นโดเมน/พอร์ตของคุณได้
@@ -56,10 +62,10 @@ function setText(id, text) {
 }
 
 
-// 🔧 store โปรไฟล์พืชแบบ normalize (Option B)
+// store โปรไฟล์พืชแบบ normalize (Option B)
 const plantStore = {}; // key = plant.name → {targets, displayRanges, water, light, fan, ...}
 
-// 🔧 แปลงเอกสารจากเซิร์ฟเวอร์ → โครงสร้าง Option B (รองรับสคีมาเก่าด้วย)
+// แปลงเอกสารจากเซิร์ฟเวอร์ → โครงสร้าง Option B (รองรับสคีมาเก่าด้วย)
 function normalizePlantDoc(p) {
   // targets (ตัวเลขคุมจริง)
   const targets = {
@@ -124,7 +130,7 @@ function updatePlantDisplay() {
   const selectedPlant = selector.value;
   const plant = plantRecommendations[selectedPlant];
   if (!plant) return;
-
+  
   console.log("📘 คำอธิบายของพืชที่เลือก:", plant.description);
 
   // ✅ ตั้งค่า originalPlantName
@@ -153,8 +159,8 @@ function updatePlantDisplay() {
   // ⏰ เวลาต่าง ๆ
   document.getElementById("lightOnTime").value  = plant.lightOnTime  || "06:00";
   document.getElementById("lightOffTime").value = plant.lightOffTime || "20:00";
-  document.getElementById("wateringInterval").value = plant.wateringInterval || "6";
-  document.getElementById("wateringDuration").value = plant.wateringDuration || "5";
+  document.getElementById("waterOnTime").value  = plant.waterOnTime  || "08:20";
+  document.getElementById("waterOffTime").value = plant.waterOffTime || "08:22";
   document.getElementById("growthStage").value = plant.growthStage || "seedling";
 
   // ⭐ ตั้งค่าโหมดรายอุปกรณ์
@@ -188,6 +194,7 @@ function updatePlantDisplay() {
   if (typeof updateModeVisibility === 'function') {
     updateModeVisibility();
   }
+
 }
 
 
@@ -241,18 +248,17 @@ function initChart() {
 
 
 function updateControl(type, state, { bypassAuto = false, silent = false } = {}) {
+  // ⚠️ MANUAL INTENT ONLY
+  // This function represents USER ACTION
+  // It must NOT:
+  // - decide auto behavior
+  // - override server decision
+  // - contain sensor-based logic
+
   // บล็อกคำสั่งจากผู้ใช้เมื่ออยู่โหมดอัตโนมัติ (เว้นแต่เป็นคำสั่งจากระบบออโต้)
   if (systemState.mode === 'auto' && !bypassAuto) {
     if (!silent) showAlert('❌ ไม่สามารถควบคุมได้ในโหมดอัตโนมัติ', 'warning');
     return;
-  }
-
-  // ✅ อัปเดตสถานะและ UI
-  systemState[type] = state;
-  const statusElement = document.getElementById(type + 'Status');
-  if (statusElement) {
-    statusElement.textContent = state ? 'เปิด' : 'ปิด';
-    statusElement.style.color = state ? '#27ae60' : '#e74c3c';
   }
 
   // ✅ ส่งคำสั่งไปยัง Flask Server พร้อมโหมดปัจจุบัน
@@ -344,7 +350,6 @@ function loadPlantSettings() {
             if (plantNameInput) plantNameInput.value = newName;
 
             displaySelector.value = newValue;
-            updatePlantDisplay();
 
             showAlert(`🌱 เพิ่ม "${newName}" เรียบร้อยแล้ว`, "success");
 
@@ -377,11 +382,6 @@ function loadPlantSettings() {
     }
 }
 
-// แปลง lux → PPFD (ประมาณ)
-function luxToPPFD(lux) {
-  if (lux == null || isNaN(lux)) return 0;
-  return lux / 54; // ~1 µmol/m²/s ≈ 54 lux
-}
 
 // คืนสถานะแสง (ตัวหนังสือ)
 function getLightStatus(ppfd) {
@@ -437,17 +437,17 @@ function fetchSensorData() {
         sensorData.temperature.toFixed(1) + '°C';
         
       // ===== อัปเดต "ปัจจุบัน" ใน Optimal Range =====
-const tempNowEl = document.getElementById('temperatureNow');
-if (tempNowEl) {
-  tempNowEl.textContent = 
-    data.temperature !== undefined ? data.temperature.toFixed(1) + "°C" : "-";
-}
+      const tempNowEl = document.getElementById('temperatureNow');
+      if (tempNowEl) {
+        tempNowEl.textContent = 
+          data.temperature !== undefined ? data.temperature.toFixed(1) + "°C" : "-";
+      }
 
-const soilNowEl = document.getElementById('soilNow');
-if (soilNowEl) {
-  soilNowEl.textContent =
-    sensorData.soilMoisture !== undefined ? Math.round(sensorData.soilMoisture) + "%" : "-";
-}
+      const soilNowEl = document.getElementById('soilNow');
+      if (soilNowEl) {
+        soilNowEl.textContent =
+          sensorData.soilMoisture !== undefined ? Math.round(sensorData.soilMoisture) + "%" : "-";
+      }
 
 
       // --- ส่วนของแสง: แสดงทั้งค่า + สถานะข้อความ ---
@@ -482,12 +482,13 @@ if (soilNowEl) {
           waterNowEl.textContent = Math.round(sensorData.waterLevel) + '%';
       }
 
+      /*
       // ===== ระบบอัตโนมัติ เมื่ออยู่โหมด auto =====
       if (systemState.mode === 'auto') {
         autoControlSystem();      // ตามค่าเป้า
         scheduledControlSystem(); // ตามช่วงเวลา (น้ำ)
       }
-
+      */
       updateChart();
     })
     .catch(error => {
@@ -495,19 +496,6 @@ if (soilNowEl) {
     });
 }
 
-
-
-function getLightStatus(ppfd) {
-  if (ppfd < 100) {
-    return '<span class="light-status">🌑 มืดมาก</span>';
-  } else if (ppfd < 400) {
-    return '<span class="light-status">🌥️ แสงน้อย</span>';
-  } else if (ppfd < 1000) {
-    return '<span class="light-status">🌤️ แสงพอเหมาะ</span>';
-  } else {
-    return '<span class="light-status">☀️ แสงแรง</span>';
-  }
-}
 
 
 function handleModeChange() {
@@ -530,8 +518,8 @@ function handleModeChange() {
         document.getElementById("lightDuration").value = parseInt(plant.lightDuration) || "";
         document.getElementById("lightOnTime").value = plant.lightOnTime || "06:00";
         document.getElementById("lightOffTime").value = plant.lightOffTime || "20:00";
-        document.getElementById("wateringInterval").value = plant.wateringInterval || "6";
-        document.getElementById("wateringDuration").value = plant.wateringDuration || "5";
+        document.getElementById("waterOnTime").value  = plant.waterOnTime  || "08:20";
+        document.getElementById("waterOffTime").value = plant.waterOffTime || "08:22";
         document.getElementById("growthStage").value = plant.growthStage || "seedling";
         document.getElementById("wateringMode").value = plant.wateringMode || "auto";
         document.getElementById("lightMode").value = plant.lightMode || "auto";
@@ -549,10 +537,10 @@ function handleModeChange() {
         document.getElementById("lightDuration").value = "";
         document.getElementById("lightOnTime").value = "06:00";
         document.getElementById("lightOffTime").value = "20:00";
-        document.getElementById("wateringInterval").value = "6";
-        document.getElementById("wateringDuration").value = "5";
         document.getElementById("growthStage").value = "seedling";
-        document.getElementById("wateringMode").value = "auto"; // ✅ ตั้งค่าเริ่มต้น
+        document.getElementById("waterOnTime").value  = "08:20";
+        document.getElementById("waterOffTime").value = "08:22";
+        document.getElementById("wateringMode").value = "auto"; 
         
         updateModeVisibility();
         }
@@ -563,28 +551,35 @@ function handleModeChange() {
 
 // ฟังก์ชันเปลี่ยนโหมดระบบหลัก (auto/manual)
 function setMode(mode) {
-  // อัปเดตสถานะบน UI
+  // อัปเดตสถานะบน UI (intent)
   const status = document.getElementById('modeStatus');
   status.textContent = mode === 'auto' ? 'โหมดอัตโนมัติ' : 'โหมดแมนนวล';
-  status.className = mode === 'auto' ? 'status-indicator auto' : 'status-indicator manual';
+  status.className = mode === 'auto'
+    ? 'status-indicator auto'
+    : 'status-indicator manual';
 
   systemState.mode = mode;
 
-  // ✅ ล็อก/ปลดล็อกปุ่มเปิดปิดเอาท์พุต
+  // ล็อก/ปลดล็อกปุ่มควบคุม
   const controls = document.querySelectorAll('#waterPump, #lightSystem, #fanSystem');
-  controls.forEach(c => c.disabled = (mode !== 'manual')); 
-  // → ปุ่มจะใช้งานได้เฉพาะเมื่อ mode = manual
+  controls.forEach(c => c.disabled = (mode !== 'manual'));
 
   // แจ้งโหมดไปยังเซิร์ฟเวอร์
   fetch('http://172.20.10.12:5000/system_mode', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mode })
-  }).catch(()=>{});
+  })
+  .then(() => {
+    // ⭐ ดึง "ความจริง" จาก server กลับมา
+    fetchControlFromServer();
+  })
+  .catch(() => {});
 }
 
+
 // ฟังก์ชันจัดการการล็อก/ปลดล็อกของโหมดรายเอาท์พุต
-function updateModeVisibility() {
+function updateEditLockState() {
   const modeSelector = document.getElementById('modeSelector');
   const perOutputModeSelects = ['wateringMode','lightMode','fanMode']
     .map(id => document.getElementById(id))
@@ -623,17 +618,16 @@ function updateModeVisibility() {
   }
 
   // ---- WATER ----
-  const wateringMode  = document.getElementById('wateringMode')?.value;
-  const intervalWrap  = document.getElementById('wateringIntervalGroup')
-                      || document.getElementById('wateringInterval')?.closest('.setting-item')
-                      || document.getElementById('wateringInterval')?.parentElement;
-  const durationWrap  = document.getElementById('wateringDurationGroup')
-                      || document.getElementById('wateringDuration')?.closest('.setting-item')
-                      || document.getElementById('wateringDuration')?.parentElement;
+  const wateringMode = document.getElementById('wateringMode')?.value;
 
-  const waterIsScheduled = (wateringMode === 'scheduled'); // auto = ซ่อน, scheduled = โชว์
-  if (intervalWrap) intervalWrap.style.display = waterIsScheduled ? '' : 'none';
-  if (durationWrap) durationWrap.style.display = waterIsScheduled ? '' : 'none';
+  const waterOnWrap  = document.getElementById('waterOnTime')?.closest('.setting-item');
+  const waterOffWrap = document.getElementById('waterOffTime')?.closest('.setting-item');
+
+  const showWaterTime = (wateringMode === 'scheduled');
+
+  if (waterOnWrap)  waterOnWrap.style.display  = showWaterTime ? '' : 'none';
+  if (waterOffWrap) waterOffWrap.style.display = showWaterTime ? '' : 'none';
+
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -641,122 +635,174 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById(id)?.addEventListener("change", updateModeVisibility);
   });
   
-  // ✅ ตั้งค่าเริ่มต้นเป็นโหมดอัตโนมัติ และแจ้งไป server ด้วย
-  setMode('auto');
+    // ⭐ Step B: ผูก event ให้ dropdown แบบ explicit
+  const displaySelect = document.getElementById("displayPlantSelector");
+  if (displaySelect) {
+    displaySelect.addEventListener("change", () => {
+      const plantName = displaySelect.value;
+
+      // guard
+      if (!plantName || plantName === "custom") return;
+
+      console.log("🌱 user selected plant:", plantName);
+
+      // อัปเดต UI
+      updatePlantDisplay();
+
+      // แจ้ง server เฉพาะตอน user เปลี่ยนจริง
+      fetch("http://172.20.10.12:5000/active_plant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plantName })
+      }).catch(err =>
+        console.warn("⚠️ update active plant failed:", err)
+      );
+    });
+  }
+    document.getElementById('waterPump')?.addEventListener('change', e => {
+    if (systemState.mode !== 'manual') return;
+    updateControl('water', e.target.checked);
+  });
+
+  document.getElementById('lightSystem')?.addEventListener('change', e => {
+    if (systemState.mode !== 'manual') return;
+    updateControl('light', e.target.checked);
+  });
+
+  document.getElementById('fanSystem')?.addEventListener('change', e => {
+    if (systemState.mode !== 'manual') return;
+    updateControl('fan', e.target.checked);
+  });
+
+  loadActivePlant();
+
+    // ⭐ heartbeat ของระบบอัตโนมัติ (สำคัญมาก)
+  setInterval(() => {
+    autoControlSystem();
+  }, 60 * 1000);
+
 });
+
+async function loadActivePlant() {
+  console.log("🔥 loadActivePlant CALLED"); 
+  try {
+    const res = await fetch('http://172.20.10.12:5000/active_plant');
+    const data = await res.json();
+
+    const selector = document.getElementById('displayPlantSelector');
+    if (!selector || !data.plantName) return;
+
+    console.log("🌱 active plant from server:", data.plantName);
+
+    // ⭐ server เป็นคนตัดสิน
+    selector.value = data.plantName;
+
+    // ⭐ render UI อย่างเดียว
+    updatePlantDisplay();
+
+  } catch (err) {
+    console.error("❌ loadActivePlant failed:", err);
+  }
+}
 
 
 function autoControlSystem() {
-  // ⭐ 1. ทำงานเฉพาะตอนโหมดระบบเป็น auto เท่านั้น
-  if (systemState.mode !== 'auto') {
-    return;
-  }
+  if (systemState.mode !== 'auto') return;
 
-  // ===== ดึงค่าที่ต้องใช้ =====
   const soil = sensorData.soilMoisture;
   const temp = sensorData.temperature;
-  const lux  = sensorData.lightLevel;   // จาก BH1750 (หน่วย lux ที่เราอ่านมา)
 
   const currentHour = new Date().getHours();
-  const lightOnHour = parseInt(document.getElementById('lightOnTime').value.split(':')[0]); 
-  const lightOffHour = parseInt(document.getElementById('lightOffTime').value.split(':')[0]); const mode = document.getElementById("wateringMode").value; 
 
-  // โหมดย่อยของแต่ละเอาต์พุต
   const wateringMode = document.getElementById("wateringMode").value;
   const lightMode    = document.getElementById("lightMode").value;
   const fanMode      = document.getElementById("fanMode").value;
 
-  // ===== ค่าเป้าหมายจากฟอร์ม =====
   const soilMin = parseInt(document.getElementById('targetSoilMoistureMin').value) || 0;
   const soilMax = parseInt(document.getElementById('targetSoilMoistureMax').value) || 100;
 
   const tempMin = parseInt(document.getElementById('targetTemperatureMin').value) || 0;
   const tempMax = parseInt(document.getElementById('targetTemperatureMax').value) || 100;
 
-  const fanOnHour    = parseInt(document.getElementById('fanOnTime').value.split(':')[0]);
-  const fanOffHour   = parseInt(document.getElementById('fanOffTime').value.split(':')[0]);
+  const lightOnHour  = parseInt(document.getElementById('lightOnTime').value.split(':')[0]);
+  const lightOffHour = parseInt(document.getElementById('lightOffTime').value.split(':')[0]);
 
-  // ====================== 💧 น้ำ (WATER) ======================
-  // 1) โหมดอัตโนมัติตามความชื้นดิน
-  if (wateringMode === "auto") {
+  const fanOnHour  = parseInt(document.getElementById('fanOnTime').value.split(':')[0]);
+  const fanOffHour = parseInt(document.getElementById('fanOffTime').value.split(':')[0]);
+
+  // ====================== 💧 WATER ======================
+  /*
+  WATER CONTROL NOTE:
+  - Watering is event-based and critical.
+  - All decisions are made by backend.
+  - Frontend only reflects server state.
+  */
+
+  // ⚠️ legacy helper — do not use in production
+  /*if (wateringMode === "auto") {
+    // 🔓 auto = ใช้ sensor soil moisture
     if (soil < soilMin && !systemState.water) {
-      document.getElementById('waterPump').checked = true;
       updateControl('water', true, { bypassAuto: true, silent: true });
-      showAlert('🚰 เริ่มการให้น้ำ - ความชื้นในดินต่ำเกินไป', 'warning');
-    } else if (soil > soilMax && systemState.water) {
-      document.getElementById('waterPump').checked = false;
+    }
+    else if (soil > soilMax && systemState.water) {
       updateControl('water', false, { bypassAuto: true, silent: true });
-      showAlert('💧 ปิดปั๊มน้ำ - ความชื้นถึงระดับสูงสุด', 'info');
     }
   }
+  */
 
-  // 2) โหมดตามช่วงเวลา ใช้ฟังก์ชันเดิมที่เธอมีอยู่
-  else if (wateringMode === "scheduled") {
-    scheduledControlSystem();   // ฟังก์ชันนี้ด้านล่างโค้ดเธอมีอยู่แล้ว
-  }
-
-  // ====================== 💡 ไฟ (LIGHT) ======================
+  // ====================== 💡 LIGHT ======================
   if (lightMode === "scheduled") {
-    // เปิด–ปิดตามช่วงเวลา
-    const shouldLightOn = (currentHour >= lightOnHour && currentHour < lightOffHour);
+    const shouldLightOn = currentHour >= lightOnHour && currentHour < lightOffHour;
 
     if (shouldLightOn !== systemState.light) {
-      document.getElementById('lightSystem').checked = shouldLightOn;
       updateControl('light', shouldLightOn, { bypassAuto: true, silent: true });
-      showAlert(
-        shouldLightOn ? '💡 เปิดระบบแสงตามเวลา' : '🌙 ปิดระบบแสงตามเวลา',
-        'info'
-      );
     }
   }
+  else  {
+    // 🔒 intentionally empty for now
+    // sensor-based light control will be added later
+  }
 
-  // ====================== 🌪 พัดลม (FAN) ======================
+
+  // ====================== 🌪 FAN ======================
   if (fanMode === "scheduled") {
-    const shouldFanOn = (currentHour >= fanOnHour && currentHour < fanOffHour);
+    const shouldFanOn = currentHour >= fanOnHour && currentHour < fanOffHour;
 
     if (shouldFanOn !== systemState.fan) {
-      document.getElementById('fanSystem').checked = shouldFanOn;
       updateControl('fan', shouldFanOn, { bypassAuto: true, silent: true });
-      showAlert(
-        shouldFanOn ? '🌪️ เปิดพัดลมตามเวลา' : '🌬️ ปิดพัดลมตามเวลา',
-        'info'
-      );
     }
-  }
-
+  } 
   else if (fanMode === "auto") {
     if (temp > tempMax && !systemState.fan) {
-      document.getElementById('fanSystem').checked = true;
       updateControl('fan', true, { bypassAuto: true, silent: true });
-      showAlert('🌪️ เปิดพัดลมระบายอากาศ - อุณหภูมิสูงเกินไป', 'warning');
-    } else if (temp < tempMin && systemState.fan) {
-      document.getElementById('fanSystem').checked = false;
+    } 
+    else if (temp < tempMin && systemState.fan) {
       updateControl('fan', false, { bypassAuto: true, silent: true });
-      showAlert('❄️ ปิดพัดลม - อุณหภูมิลดลงถึงค่าต่ำสุด', 'info');
     }
-  }
-
-  // ====================== ⚠️ เตือนระดับน้ำในถัง ======================
-  if (sensorData.distance < 20) {
-    showAlert('⚠️ ระดับน้ำในถังต่ำ กรุณาเติมน้ำ', 'warning');
   }
 }
 
 
 
-function scheduledControlSystem() {
+/*function scheduledControlSystem() {
   const mode = document.getElementById("wateringMode").value;
   if (mode !== "scheduled") return;
 
-  const interval = parseInt(document.getElementById("wateringInterval").value); // ชั่วโมง
   const now = new Date();
   const lastTimeStr = localStorage.getItem("lastWateredTime");
   const lastTime = lastTimeStr ? new Date(lastTimeStr) : null;
+  // 🔧 TEST ONLY
+  // 1 = นาที (ใช้ทดสอบ)
+  // 60 = ชั่วโมงจริง (ใช้ตอนใช้งานจริง)
+  const TEST_MULTIPLIER = 1;
+  const intervalHours = parseInt(document.getElementById("wateringInterval").value);
+  const intervalMs = intervalHours * 60 * 1000 * TEST_MULTIPLIER;
 
-  if (!lastTime || (now - lastTime) >= interval * 60 * 60 * 1000) {
+  if (!lastTime || (now - lastTime) >= intervalMs) {
+
     document.getElementById('waterPump').checked = true;
     updateControl('water', true, { bypassAuto: true, silent: true });
-    showAlert(`🕒 ให้น้ำตามช่วงเวลา (${interval} ชม.)`, 'success');
+    showAlert(`🕒 ให้น้ำตามช่วงเวลา (${intervalHours} ชม.)`, 'success');
     lastWateredTime = now;
 
     localStorage.setItem("lastWateredTime", now.toISOString());
@@ -779,7 +825,7 @@ function scheduledControlSystem() {
     }, duration * 60 * 1000);
   }
 }
-
+*/
 
 function updateChart() {
     const now = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
@@ -794,6 +840,41 @@ function updateChart() {
     }
 
     chart.update();
+}
+
+function updateModeBadge(mode) {
+  const badge = document.getElementById("controlModeBadge");
+  if (!badge || !mode) return;
+
+  badge.className = "badge " + mode;
+  badge.textContent = mode.toUpperCase();
+}
+
+async function fetchControlFromServer() {
+  try {
+    const res = await fetch('http://172.20.10.12:5000/get_control');
+    const data = await res.json();
+
+    // ⭐ แสดงโหมดจาก server (AUTO / MANUAL / SCHEDULED)
+    if (data.mode) {
+      updateModeBadge(data.mode);
+    }
+
+    // water
+    document.getElementById('waterPump').checked = !!data.water;
+    document.getElementById('waterStatus').textContent = data.water ? 'เปิด' : 'ปิด';
+
+    // light
+    document.getElementById('lightSystem').checked = !!data.light;
+    document.getElementById('lightStatus').textContent = data.light ? 'เปิด' : 'ปิด';
+
+    // fan
+    document.getElementById('fanSystem').checked = !!data.fan;
+    document.getElementById('fanStatus').textContent = data.fan ? 'เปิด' : 'ปิด';
+
+  } catch (err) {
+    console.error('❌ fetchControlFromServer failed:', err);
+  }
 }
 
 
@@ -818,24 +899,25 @@ async function loadPlantsFromServer(selectedName = null, { render = true } = {})
 
       // เก็บข้อมูลที่หน้าเว็บใช้ (สคีมาเดิมที่คุณมีอยู่)
       plantRecommendations[p.name] = {
-        description: p.description || "",
-        temperatureRange: p.temperatureRange || "-",
-        soilMoistureRange: p.soilMoistureRange || "-",
-        lightDuration: p.lightDuration || "-",
-        lightOnTime: p.lightOnTime || "06:00",
-        lightOffTime: p.lightOffTime || "20:00",
-        // เวลาเปิดปิดพัดลม (ถ้าเซิร์ฟเวอร์ส่งมา)
-        fanOnTime: p.fanOnTime || "06:00",
-        fanOffTime: p.fanOffTime || "20:00",
+        description: p.description ?? "",
+        temperatureRange: p.temperatureRange ?? "-",
+        soilMoistureRange: p.soilMoistureRange ?? "-",
 
-        wateringInterval: p.wateringInterval || "6",
-        wateringDuration: p.wateringDuration || "5",
-        growthStage: p.growthStage || "vegetative",
+        lightDuration: p.lightDuration ?? "-",
+        lightOnTime: p.lightOnTime ?? "06:00",
+        lightOffTime: p.lightOffTime ?? "20:00",
+        lightMode: p.lightMode ?? "auto",
 
-        // ⭐ เพิ่มสองฟิลด์นี้
-        wateringMode: p.wateringMode || "auto",
-        lightMode: p.lightMode || "auto",
-        fanMode: p.fanMode || "auto"
+        fanOnTime: p.fanOnTime ?? "06:00",
+        fanOffTime: p.fanOffTime ?? "20:00",
+        fanMode: p.fanMode ?? "auto",
+
+        waterOnTime:  p.waterOnTime  ?? "08:20",
+        waterOffTime: p.waterOffTime ?? "08:22",
+        wateringMode: p.wateringMode ?? "auto",        
+        
+        growthStage: p.growthStage ?? "vegetative"
+        
       };
     });
 
@@ -848,8 +930,6 @@ async function loadPlantsFromServer(selectedName = null, { render = true } = {})
     // เลือกค่าใน dropdown
     if (selectedName && plants.some(p => p.name === selectedName)) {
       displaySelect.value = selectedName;
-    } else if (plants.length > 0) {
-      displaySelect.value = plants[0].name;
     }
 
     // เลือกได้ว่าจะ render ตอนนี้เลยไหม
@@ -883,9 +963,9 @@ async function saveSettings() {
     lightDuration: `${document.getElementById('lightDurationMin').value}–${document.getElementById('lightDurationMax').value} ชม./วัน`,
     lightOnTime: document.getElementById('lightOnTime').value,
     lightOffTime: document.getElementById('lightOffTime').value,
-    wateringInterval: document.getElementById('wateringInterval').value,
-    wateringDuration: document.getElementById('wateringDuration').value,
-    wateringMode: document.getElementById("wateringMode").value,
+    waterOnTime:  document.getElementById('waterOnTime').value,
+    waterOffTime: document.getElementById('waterOffTime').value,
+    wateringMode: document.getElementById('wateringMode').value,
     lightMode: document.getElementById("lightMode").value,
     fanMode:   document.getElementById("fanMode").value,
     fanOnTime:  document.getElementById('fanOnTime').value,
@@ -907,8 +987,7 @@ async function saveSettings() {
 
       if (res.status === 201) {
         showAlert(`🌱 "${plantName}" ถูกเพิ่มเรียบร้อยแล้ว`, "success");
-        const success = await loadPlantsFromServer(plantName, { render: false });
-        if (success) updatePlantDisplay();
+        const success = await loadPlantsFromServer(plantName, { render: true });
       } else {
         showAlert(`⚠️ ไม่สามารถเพิ่ม "${plantName}" ได้: ${data.message}`, "warning");
       }
@@ -953,7 +1032,6 @@ async function saveSettings() {
         displaySelect.value = plantName;
 
         const success = await loadPlantsFromServer(plantName, { render: false });
-        if (success) updatePlantDisplay();
       } else {
         showAlert(`⚠️ ไม่สามารถแก้ไข "${originalName}" ได้: ${data.message}`, "warning");
       }
@@ -969,7 +1047,7 @@ async function saveSettings() {
 
 function disableForm(disabled) {
   const inputs = document.querySelectorAll(
-    '#plantTypeName, #targetSoilMoisture, #targetTemperature, #lightDuration, #lightOnTime, #lightOffTime, #wateringInterval, #wateringDuration, #growthStage, #wateringMode'
+    '#plantTypeName, #targetSoilMoisture, #targetTemperature, #lightDuration, #lightOnTime, #lightOffTime, #waterOnTime, #waterOffTime, #growthStage, #wateringMode'
   );
 
   inputs.forEach(input => {
@@ -994,20 +1072,23 @@ function showAlert(message, type) {
 }
 
 
-// 🔥 เริ่มต้นระบบ - ดึงข้อมูลจริงจาก ESP32
-window.onload = function() {
+window.onload = async function() {
+  console.log("🔥 window.onload START");
+
   initChart();
-  setMode('auto');
+  setMode("auto");
 
-  loadPlantsFromServer(null, { render: false }).then(() => {
-    const displaySelect = document.getElementById("displayPlantSelector");
-    const selectedPlant = displaySelect?.value || "";
-    const originalInput = document.getElementById("originalPlantName");
-    if (originalInput) originalInput.value = selectedPlant;
+  console.log("🔥 call loadPlantsFromServer");
+  await loadPlantsFromServer(null, { render: false });
 
-    updatePlantDisplay(); // render ทีเดียวที่นี่
-  });
+  console.log("🔥 call loadActivePlant");
+  await loadActivePlant();
 
   setInterval(fetchSensorData, 3000);
-  fetchSensorData();
+  setInterval(() => {
+  if (systemState.mode === 'auto') {
+    fetchControlFromServer();
+  }
+  }, 2000);
+  /*fetchSensorData();*/
 };
