@@ -87,10 +87,11 @@ void sendToServer(float temperature,
 
   char url[300];
   snprintf(url, sizeof(url),
-           "%s/update?temperature=%.2f&distance=%.2f&light=%.0f&soil=%.2f",
-           SERVER_BASE, temperature, distanceCm, lux, soilPercent);
+         "%s/update?temperature=%.2f&distance=%.2f&light=%.0f&soil=%.2f",
+         SERVER_BASE, temperature, distanceCm, lux, soilPercent);
 
   HTTPClient http;
+  Serial.println(url);
   http.begin(url);
 
   int code = http.GET();
@@ -151,8 +152,14 @@ float soilPercentFromRaw(int raw) {
 void setup() {
   Serial.begin(115200);
   dht.begin();
-  Wire.begin();
+
+  // กำหนด I2C ชัดเจน
+  Wire.begin(21, 22);
+  delay(200);  // ให้ bus นิ่งก่อน
+
   lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
+  delay(200);  // ให้ sensor พร้อม
+
   lcd.init();
   lcd.backlight();
 
@@ -162,7 +169,6 @@ void setup() {
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
 
-  // ปิดทุกอุปกรณ์ก่อนเริ่ม (Active LOW)
   digitalWrite(RELAY_PUMP, HIGH);
   digitalWrite(RELAY_FAN, HIGH);
   digitalWrite(SSR_LIGHT, LOW);
@@ -226,21 +232,37 @@ float readDistance() {
 }
 
 void loop() {
-  // อ่านเซ็นเซอร์
-  float temperature = isnan(dht.readTemperature()) ? -127.0 : dht.readTemperature();
-  uint16_t lux = lightMeter.readLightLevel();
-  if (lux == 65535 || lux == 65534) {
-  Serial.println("BH1750 read error!");
-  lux = 0; // หรือค่า default
+
+  // ===== อ่าน DHT แค่ครั้งเดียว =====
+  float temperature = dht.readTemperature();
+  if (isnan(temperature)) {
+    temperature = -127.0;
   }
+
+  // ===== อ่าน BH1750 แบบไม่ให้เด้ง 0 =====
+  static uint16_t lastLux = 0;
+
+  uint16_t luxValue = lightMeter.readLightLevel();
+
+  if (luxValue == 65535 || luxValue == 65534) {
+    luxValue = lastLux;
+  } else {
+    lastLux = luxValue;
+  }
+
+  // ===== Soil =====
   int soilRaw = readSoilRaw();
   float soilPercent = soilPercentFromRaw(soilRaw);
   soilEMA = alpha * soilPercent + (1 - alpha) * soilEMA;
+
+  // ===== Distance =====
   float distance = readDistance();
   distanceEMA = alpha * distance + (1 - alpha) * distanceEMA;
 
-  sendToServer(temperature, distance, (float)lux, soilPercent);
-
+  // ===== ส่งข้อมูลไป server =====
+  // ===== ส่งข้อมูลไป server =====
+  Serial.printf("BEFORE SEND luxValue = %u\n", luxValue);
+  sendToServer(temperature, distance, luxValue, soilPercent);
 
   // ===== FETCH COMMAND FROM SERVER =====
   bool cmdPump = pumpOn;
@@ -250,17 +272,16 @@ void loop() {
 
   fetchControlCommands(cmdPump, cmdFan, cmdLight, cmdDurationMs);
 
-  // ===== APPLY SERVER COMMANDS (ALWAYS) =====
+  // ===== APPLY SERVER COMMANDS =====
   pumpOn  = cmdPump;
   fanOn   = cmdFan;
   lightOn = cmdLight;
 
-  // manual → ยกเลิก scheduled
   if (isManualMode) {
     scheduledWaterActive = false;
   }
 
-    // ===== FAN SCHEDULED =====
+  // ===== FAN SCHEDULED =====
   if (!isManualMode && cmdFan && !scheduledFanActive) {
     fanOn = true;
     scheduledFanActive = true;
@@ -271,7 +292,7 @@ void loop() {
     scheduledFanActive = false;
   }
 
-    // ===== Scheduled Water handling =====
+  // ===== Scheduled Water START =====
   if (!isManualMode && cmdPump && cmdDurationMs > 0 && !scheduledWaterActive) {
     pumpOn = true;
     scheduledWaterActive = true;
@@ -281,7 +302,7 @@ void loop() {
     Serial.printf("🕒 Scheduled water start (%lu ms)\n", waterDurationMs);
   }
 
-    // ===== Scheduled Water STOP =====
+  // ===== Scheduled Water STOP =====
   if (scheduledWaterActive) {
     if (millis() - waterStartMillis >= waterDurationMs) {
       pumpOn = false;
@@ -293,37 +314,46 @@ void loop() {
   }
 
   Serial.printf("ManualMode=%s cmdPump=%d cmdFan=%d cmdLight=%d\n",
-              isManualMode ? "true":"false", cmdPump, cmdFan, cmdLight);
+                isManualMode ? "true":"false", cmdPump, cmdFan, cmdLight);
 
-    static bool lastPump=false, lastFan=false, lastLight=false;
+  static bool lastPump=false, lastFan=false, lastLight=false;
 
-    if (pumpOn != lastPump) { 
-      digitalWrite(RELAY_PUMP, pumpOn ? LOW : HIGH); 
-      lastPump = pumpOn; 
-      sendStatusToServer();
-    }
+  if (pumpOn != lastPump) { 
+    digitalWrite(RELAY_PUMP, pumpOn ? LOW : HIGH); 
+    lastPump = pumpOn; 
+    sendStatusToServer();
+  }
 
-    if (fanOn != lastFan) {   
-      digitalWrite(RELAY_FAN, fanOn ? LOW : HIGH);   
-      lastFan = fanOn; 
-      sendStatusToServer();
-    }
+  if (fanOn != lastFan) {   
+    digitalWrite(RELAY_FAN, fanOn ? LOW : HIGH);   
+    lastFan = fanOn; 
+    sendStatusToServer();
+  }
 
-    if (lightOn != lastLight) {
-      digitalWrite(SSR_LIGHT, lightOn ? HIGH : LOW); 
-      lastLight = lightOn; 
-      sendStatusToServer();
-    }
+  if (lightOn != lastLight) {
+    digitalWrite(SSR_LIGHT, lightOn ? HIGH : LOW); 
+    lastLight = lightOn; 
+    sendStatusToServer();
+  }
 
-  // Serial & LCD
-  Serial.printf("Soil:%.2f%% RAW=%d EMA=%.2f%%\nTemp:%.2f°C\nLight:%u lux\nWater:%.2f cm EMA=%.2f cm\nPump:%s Fan:%s Light:%s\n\n",
-                soilPercent, soilRaw, soilEMA, temperature, lux, distance, distanceEMA,
-                pumpOn?"ON":"OFF", fanOn?"ON":"OFF", lightOn?"ON":"OFF");
+  // ===== Debug & LCD =====
+  Serial.printf(
+    "Soil:%.2f%% RAW=%d EMA=%.2f%%\nTemp:%.2f°C\nLight:%u lux\nWater:%.2f cm EMA=%.2f cm\nPump:%s Fan:%s Light:%s\n\n",
+    soilPercent, soilRaw, soilEMA, temperature, luxValue, distance, distanceEMA,
+    pumpOn?"ON":"OFF", fanOn?"ON":"OFF", lightOn?"ON":"OFF"
+  );
 
-  lcd.setCursor(0,0); lcd.printf("Soil:%.1f%% Pum:%s", soilEMA, pumpOn?"ON ":"OFF");
-  lcd.setCursor(0,1); lcd.printf("Temp:%4.1fC Fan:%s", temperature, fanOn?"ON ":"OFF");
-  lcd.setCursor(0,2); lcd.printf("Ligh:%dL Ligh:%s", lux, lightOn?"ON ":"OFF ");
-  lcd.setCursor(0,3); lcd.printf("Water:%3dcm M:%s", (int)(distanceEMA+0.5), isManualMode ? "Manual" : "Auto");
+  lcd.setCursor(0,0);
+  lcd.printf("Soil:%5.1f%% Pum:%-3s", soilEMA, pumpOn?"ON":"OFF");
+
+  lcd.setCursor(0,1);
+  lcd.printf("Temp:%5.1fC Fan:%-3s", temperature, fanOn?"ON":"OFF");
+
+  lcd.setCursor(0,2);
+  lcd.printf("Ligh:%5dL L:%-3s", luxValue, lightOn?"ON":"OFF");
+  
+  lcd.setCursor(0,3); 
+  lcd.printf("Water:%3dcm M:%s", (int)(distanceEMA+0.5), isManualMode ? "Manual" : "Auto");
 
   delay(3000);
 }
