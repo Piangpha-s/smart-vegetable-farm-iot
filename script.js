@@ -513,9 +513,30 @@ function handleModeChange() {
         if (originalInput) originalInput.value = selected;
 
         document.getElementById("plantTypeName").value = selected;
-        document.getElementById("targetSoilMoisture").value = parseInt(plant.soilMoistureRange) || "";
-        document.getElementById("targetTemperature").value = parseInt(plant.temperatureRange) || "";
-        document.getElementById("lightDuration").value = parseInt(plant.lightDuration) || "";
+        // แยก soil range
+        const [soilMin, soilMax] = (plant.soilMoistureRange || "")
+          .replace("%","")
+          .split("–")
+          .map(v => v.trim());
+
+        document.getElementById("targetSoilMoistureMin").value = soilMin || "";
+        document.getElementById("targetSoilMoistureMax").value = soilMax || "";
+
+        // แยก temperature range
+        const [tempMin, tempMax] = (plant.temperatureRange || "")
+          .replace("°C","")
+          .split("–")
+          .map(v => v.trim());
+
+        document.getElementById("targetTemperatureMin").value = tempMin || "";
+        document.getElementById("targetTemperatureMax").value = tempMax || "";
+
+        // แยก light duration
+        const lightRaw = (plant.lightDuration || "").replace("ชม./วัน","").trim();
+        const [lightMin, lightMax] = lightRaw.split("–").map(v => v.trim());
+
+        document.getElementById("lightDurationMin").value = lightMin || "";
+        document.getElementById("lightDurationMax").value = lightMax || "";
         document.getElementById("lightOnTime").value = plant.lightOnTime || "06:00";
         document.getElementById("lightOffTime").value = plant.lightOffTime || "20:00";
         document.getElementById("waterOnTime").value  = plant.waterOnTime  || "08:20";
@@ -718,11 +739,15 @@ function autoControlSystem() {
   const lightMode    = document.getElementById("lightMode").value;
   const fanMode      = document.getElementById("fanMode").value;
 
-  const soilMin = parseInt(document.getElementById('targetSoilMoistureMin').value) || 0;
-  const soilMax = parseInt(document.getElementById('targetSoilMoistureMax').value) || 100;
+  const soilMinEl = document.getElementById('targetSoilMoistureMin');
+  const soilMaxEl = document.getElementById('targetSoilMoistureMax');
+  const tempMinEl = document.getElementById('targetTemperatureMin');
+  const tempMaxEl = document.getElementById('targetTemperatureMax');
 
-  const tempMin = parseInt(document.getElementById('targetTemperatureMin').value) || 0;
-  const tempMax = parseInt(document.getElementById('targetTemperatureMax').value) || 100;
+  const soilMin = soilMinEl ? parseInt(soilMinEl.value) : 0;
+  const soilMax = soilMaxEl ? parseInt(soilMaxEl.value) : 100;
+  const tempMin = tempMinEl ? parseInt(tempMinEl.value) : 0;
+  const tempMax = tempMaxEl ? parseInt(tempMaxEl.value) : 100;
 
   const lightOnHour  = parseInt(document.getElementById('lightOnTime').value.split(':')[0]);
   const lightOffHour = parseInt(document.getElementById('lightOffTime').value.split(':')[0]);
@@ -739,7 +764,7 @@ function autoControlSystem() {
   */
 
   // ⚠️ legacy helper — do not use in production
-  /*if (wateringMode === "auto") {
+  if (wateringMode === "auto") {
     // 🔓 auto = ใช้ sensor soil moisture
     if (soil < soilMin && !systemState.water) {
       updateControl('water', true, { bypassAuto: true, silent: true });
@@ -748,7 +773,7 @@ function autoControlSystem() {
       updateControl('water', false, { bypassAuto: true, silent: true });
     }
   }
-  */
+  
 
   // ====================== 💡 LIGHT ======================
   if (lightMode === "scheduled") {
