@@ -224,7 +224,12 @@ def get_control():
     # =========================================================
     if mode == "auto":
 
-        # 💧 WATER (minute-based scheduled)
+        # reset ทุกครั้ง
+        control_state["water"] = 0
+        control_state["fan"] = 0
+        control_state["light"] = 0
+
+        # ================= WATER =================
         if watering_mode == "scheduled":
             now = datetime.now()
             current_minutes = now.hour * 60 + now.minute
@@ -237,8 +242,34 @@ def get_control():
 
             control_state["water"] = 1 if water_on_min <= current_minutes < water_off_min else 0
 
+        elif watering_mode == "auto":
+            if soil < min_soil:
+                control_state["water"] = 1
+            else:
+                control_state["water"] = 0
 
-        # 💡 LIGHT (minute-based scheduled)
+
+        # ================= FAN =================
+        if fan_mode == "scheduled":
+            now = datetime.now()
+            current_minutes = now.hour * 60 + now.minute
+
+            fan_on_h, fan_on_m = map(int, plant.get("fanOnTime", "06:00").split(":"))
+            fan_off_h, fan_off_m = map(int, plant.get("fanOffTime", "20:00").split(":"))
+
+            fan_on_min  = fan_on_h * 60 + fan_on_m
+            fan_off_min = fan_off_h * 60 + fan_off_m
+
+            control_state["fan"] = 1 if fan_on_min <= current_minutes < fan_off_min else 0
+
+        elif fan_mode == "auto":
+            if temp > temp_max:
+                control_state["fan"] = 1
+            else:
+                control_state["fan"] = 0
+
+
+        # ================= LIGHT =================
         if light_mode == "scheduled":
             now = datetime.now()
             current_minutes = now.hour * 60 + now.minute
@@ -253,25 +284,11 @@ def get_control():
 
         elif light_mode == "auto":
             lux = sensor_data.get("light", 0)
-            light_threshold = int(plant.get("lightThreshold", 300))  # ค่า default
+            light_threshold = int(plant.get("lightThreshold", 300))
 
             control_state["light"] = 1 if lux < light_threshold else 0
 
-
-        # 🌪 FAN (minute-based scheduled)
-        if fan_mode == "scheduled":
-            now = datetime.now()
-            current_minutes = now.hour * 60 + now.minute
-
-            fan_on_h, fan_on_m = map(int, plant.get("fanOnTime", "06:00").split(":"))
-            fan_off_h, fan_off_m = map(int, plant.get("fanOffTime", "20:00").split(":"))
-
-            fan_on_min  = fan_on_h * 60 + fan_on_m
-            fan_off_min = fan_off_h * 60 + fan_off_m
-
-            control_state["fan"] = 1 if fan_on_min <= current_minutes < fan_off_min else 0
-
-
+        
     # =========================================================
     # 🕒 SYSTEM SCHEDULED MODE (legacy / ยังไม่ใช้ก็ได้)
     # =========================================================
